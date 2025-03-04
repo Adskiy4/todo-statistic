@@ -1,5 +1,7 @@
+const path = require('path');
 const { getAllFilePathsWithExtension, readFile } = require('./fileSystem');
 const { readLine } = require('./console');
+
 const todoRegex = /\/\/\s*todo\s*:?/i;
 const dataRegex = /\/\/\s*todo\s+(.+?);\s*(.+?);\s*(.+)/i;
 
@@ -10,22 +12,30 @@ readLine(processCommand);
 
 function getFiles() {
     const filePaths = getAllFilePathsWithExtension(process.cwd(), 'js');
-    return filePaths.map(path => readFile(path));
+    return filePaths.map(filePath => ({
+        path: filePath,
+        content: readFile(filePath)
+    }));
 }
 
 function getCommentsArray() {
     let commentsArray = [];
     let filesArray = getFiles();
     for (let i = 0; i < filesArray.length; i++) {
-        let lines = filesArray[i].split('\n');
+        let lines = filesArray[i].content.split('\n');
         for (let j = 0; j < lines.length; j++) {
             let index = lines[j].search(todoRegex);
-            if (index !== -1)
-                commentsArray.push(lines[j].substring(index).trim());
+            if (index !== -1) {
+                commentsArray.push({
+                    comment: lines[j].substring(index).trim(),
+                    fileName: path.basename(filesArray[i].path)
+                });
+            }
         }
     }
     return commentsArray;
 }
+
 
 function parseDate(dateStr) {
     let workString = typeof dateStr === 'string' ? dateStr : dateStr[0];
@@ -33,21 +43,22 @@ function parseDate(dateStr) {
     let year = Number(dateArr[0]);
     let month = dateArr.length >= 2 ? Number(dateArr[1]) : 1;
     let day = dateArr.length >= 3 ? Number(dateArr[2]) : 1;
-    return [ year, month, day ];
+    return new Date(year, month - 1, day);
 }
 
-function formatTableRow(importance, user, date, comment) {
-    const importanceStr = importance ? '!' : ' ';
-    const userStr = user.slice(0, user.length).padEnd(10);
-    const dateStr = date.slice(0, date.length).padEnd(10);
-    const commentStr = comment.slice(0, comment.length).padEnd(50);
-    return `  ${importanceStr}  |  ${userStr}  |  ${dateStr}  |  ${commentStr}`;
+function formatTableRow(importance, user, date, comment, fileName) {
+    const importanceStr = importance.padEnd(1);
+    const userStr = user.slice(0,10).padEnd(10);
+    const dateStr = date.slice(0,10).padEnd(10);
+    const commentStr = comment.slice(0,50).padEnd(50);
+    const fileNameStr = fileName.slice(0,50).padEnd(50);
+    return `  ${importanceStr}  |  ${userStr}  |  ${dateStr}  |  ${commentStr}  |  ${fileNameStr}`;
 }
 
 function printTable(comments) {
-    console.log(formatTableRow('!', 'User', 'Date', 'Comment'));
-    console.log('-'.repeat(80));
-    comments.forEach(comment => {
+    console.log(formatTableRow('!', 'User', 'Date', 'Comment', 'File'));
+    console.log('-'.repeat(110));
+    comments.forEach(({ comment, fileName }) => {
         const importance = comment.includes('!') ? '!' : '';
         const data = comment.match(dataRegex);
 
@@ -61,12 +72,12 @@ function printTable(comments) {
             commentText = data[3].trim();
         }
 
-        console.log(formatTableRow(importance, user, date, commentText));
+        console.log(formatTableRow(importance, user, date, commentText, fileName));
     });
 }
 
 function printUser(commentsArray, username) {
-    const filteredComments = commentsArray.filter(comment => {
+    const filteredComments = commentsArray.filter(({ comment }) => {
         const data = comment.match(dataRegex);
         if (data) {
             const user = data[1].trim().toLowerCase();
@@ -79,7 +90,7 @@ function printUser(commentsArray, username) {
 }
 
 function printImportant(commentsArray) {
-    const filteredComments = commentsArray.filter(comment =>
+    const filteredComments = commentsArray.filter(({ comment }) =>
         comment.includes('!')
     );
     printTable(filteredComments);
@@ -87,29 +98,21 @@ function printImportant(commentsArray) {
 }
 
 function printRest(commentsArray) {
-    const filteredComments = commentsArray.filter(comment =>
-        !usedComments.includes(comment)
+    const filteredComments = commentsArray.filter(({ comment }) =>
+        !usedComments.some(used => used.comment === comment)
     );
     printTable(filteredComments);
 }
 
 function printDate(commentsArray, dateStr) {
-    let arr = parseDate(dateStr);
-    let year = arr[0];
-    let month = arr[1];
-    let day = arr[2];
-    let currentDate = new Date(year, month, day);
+    const currentDate = parseDate(dateStr);
 
-    const filteredComments = commentsArray.filter(comment => {
+    const filteredComments = commentsArray.filter(({ comment }) => {
         const data = comment.match(dataRegex);
         if (data) {
             const date = data[2].trim();
-            let arr = parseDate(date);
-            let year = arr[0];
-            let month = arr[1];
-            let day = arr[2];
-            let comparisonDate = new Date(year, month, day);
-            return comparisonDate > currentDate;
+            const commentDate = parseDate(date);
+            return commentDate > currentDate;
         }
         return false;
     });
